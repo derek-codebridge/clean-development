@@ -1,0 +1,13 @@
+{
+  "name": "clean-development",
+  "description": "Managed build and cache storage without prompt injection.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Magrathean UK"
+  },
+  "homepage": "https://github.com/magrathean-uk/clean-development",
+  "repository": "https://github.com/magrathean-uk/clean-development",
+  "license": "MIT",
+  "keywords": ["build-cache", "developer-tools", "storage"],
+  "hooks": "./integrations/claude/hooks.json"
+}

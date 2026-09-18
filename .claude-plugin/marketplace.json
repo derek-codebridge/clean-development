@@ -1,0 +1,19 @@
+{
+  "name": "clean-development-dev",
+  "description": "Development marketplace for clean-development",
+  "owner": {
+    "name": "Magrathean UK"
+  },
+  "plugins": [
+    {
+      "name": "clean-development",
+      "description": "Managed build and cache storage without prompt injection.",
+      "version": "0.1.0",
+      "source": "./",
+      "skills": "./claude-skills/",
+      "author": {
+        "name": "Magrathean UK"
+      }
+    }
+  ]
+}

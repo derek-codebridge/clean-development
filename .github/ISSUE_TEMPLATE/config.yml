@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/magrathean-uk/clean-development/security/advisories/new
+    about: Report deletion, injection, configuration corruption, or supply-chain vulnerabilities privately.
+  - name: Support and questions
+    url: https://github.com/magrathean-uk/clean-development/discussions
+    about: Ask setup and design questions without opening a bug.

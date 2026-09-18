@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clean Development"
+  short_description: "Configure and inspect managed developer storage"
+  default_prompt: "Use $clean-development to configure or diagnose managed build storage."
+policy:
+  allow_implicit_invocation: false
