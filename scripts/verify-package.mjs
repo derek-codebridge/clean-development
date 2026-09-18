@@ -34,6 +34,7 @@ try {
     ".pi/extensions/clean-development.ts",
     "bin/clean-development.js",
     "claude-skills/clean-development/SKILL.md",
+    "docs/audit-2026-09-18.md",
     "docs/agent-integrations.md",
     "docs/architecture.md",
     "docs/configuration.md",

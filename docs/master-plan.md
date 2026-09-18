@@ -33,4 +33,4 @@ Status reviewed 18 September 2026. `[x]` means implemented and evidenced, `[~]` 
 - [ ] Add native cache eviction and scratch expiry; scratch is currently reserved and retained.
 - [~] Commit, create the GitHub remote, publish npm with provenance, and run public release checks; requires explicit external authorization.
 
-See [verification](verification.md), [agent integrations](agent-integrations.md), [safety model](safety-model.md), and [performance](performance.md). This file is the repository's authoritative acceptance ledger; the longer work-session design notes are not required for installation or operation.
+See [verification](verification.md), [agent integrations](agent-integrations.md), [safety model](safety-model.md), [performance](performance.md), and the [audit record](audit-2026-09-18.md). This file is the repository's authoritative acceptance ledger; the longer work-session design notes are not required for installation or operation.

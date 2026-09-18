@@ -10,7 +10,7 @@ Snapshot: 18 September 2026 on macOS 27.0, Apple silicon.
   - Go 1.27.1: `go test ./...` used the managed build cache.
   - npm 11.19.1: a package script ran and `npm config get cache` resolved to the managed cache.
   - uv 0.12.12: `uv cache dir` resolved to the managed cache.
-- `npm pack` file-list inspection of 54 files, install into an empty prefix, packaged executable version check, and import checks for both package exports.
+- `npm pack` file-list inspection of 55 files, install into an empty prefix, packaged executable version check, and import checks for both package exports.
 - Generated Codex TOML parsed successfully with Codex CLI 0.154.0 (`config.load=ok`), and generated Grok TOML parsed with Grok 1.0.34. These are configuration parser checks, not model-backed workflow acceptance.
 - The repo-local Codex marketplace passed an isolated Codex CLI 0.154.0 add/install/list flow with the current `source: local` / `path: ./` marketplace schema. This does not prove desktop plugin-browser entitlement or model-backed workflow acceptance.
 - The packed Grok marketplace route passed an isolated Grok 1.0.34 add/install/list/details flow; its installed plugin reported zero skill, command, and agent directories.
