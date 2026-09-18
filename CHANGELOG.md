@@ -22,3 +22,4 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 - Explicit `setup --agents` selections now deactivate previously owned Claude, Codex, and Grok integrations that are no longer selected, while preserving unrelated configuration.
 - Codex repo marketplace metadata now uses the current local `source` / `path` schema and is covered by the package check.
+- Codex plugin UX metadata now uses an explicit-only starter prompt and cannot become a normal-session bootstrap instruction.
