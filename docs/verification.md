@@ -4,7 +4,7 @@ Snapshot: 18 September 2026 on macOS 27.0, Apple silicon.
 
 ## Passed locally
 
-- The automated Node suite currently passes 79 tests covering config precedence, workspace identity, explicit overrides, npm default-cache handling, dormant pre-setup plugins, durable runtime setup/update, PATH persistence safety, state/runtime symlink containment, receipt validation and path binding, idempotent Claude/Codex/Grok integration, explicit agent-selection deactivation, byte-preserving config removal, concurrent setup/builds/preparation, uninstall preservation, child-process ownership leases, prune containment, top-level run routing, real executable resolution, arguments, and exit status.
+- The automated Node suite currently passes 80 tests covering config precedence, workspace identity, explicit overrides, all 14 declared adapter destinations, npm default-cache handling, dormant pre-setup plugins, durable runtime setup/update, PATH persistence safety, state/runtime symlink containment, receipt validation and path binding, idempotent Claude/Codex/Grok integration, explicit agent-selection deactivation, byte-preserving config removal, concurrent setup/builds/preparation, uninstall preservation, child-process ownership leases, prune containment, top-level run routing, real executable resolution, arguments, and exit status.
 - Real no-network tool smoke fixtures:
   - Cargo 1.98.1: `cargo check` wrote no project-local `target` and used the managed checkout target.
   - Go 1.27.1: `go test ./...` used the managed build cache.

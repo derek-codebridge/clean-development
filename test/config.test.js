@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { resolveConfig, writeUserConfig } from "../src/config.js";
 import { environmentForTool } from "../src/adapters.js";
+import { SHIM_TOOLS } from "../src/constants.js";
 import { canonicalizePotentialPath } from "../src/platform.js";
 import { identifyWorkspace } from "../src/workspace.js";
 
@@ -52,6 +53,37 @@ test("Cargo routing is workspace-specific and preserves explicit overrides", (t)
   const second = environmentForTool("cargo", [], { config, cwd: item.project, env: { ...item.env, CARGO_TARGET_DIR: custom }, create: false });
   assert.deepEqual(second.applied, {});
   assert.equal(second.preserved.CARGO_TARGET_DIR, custom);
+});
+
+test("every declared adapter resolves to an explicit managed destination", (t) => {
+  const item = fixture();
+  t.after(() => fs.rmSync(item.root, { recursive: true, force: true }));
+  const config = resolveConfig({ cwd: item.project, env: { ...item.env, CLEAN_DEVELOPMENT_ROOT: path.join(item.root, "managed") } });
+  const workspace = identifyWorkspace("cargo", [], item.project);
+  const expected = {
+    cargo: { CARGO_TARGET_DIR: path.join(config.buildRoot, workspace.id, "cargo", "target") },
+    go: { GOCACHE: path.join(config.cacheRoot, "go", "build"), GOMODCACHE: path.join(config.cacheRoot, "go", "modules") },
+    npm: { npm_config_cache: path.join(config.cacheRoot, "node", "npm") },
+    npx: { npm_config_cache: path.join(config.cacheRoot, "node", "npm") },
+    pnpm: { npm_config_cache: path.join(config.cacheRoot, "node", "npm"), npm_config_store_dir: path.join(config.cacheRoot, "node", "pnpm-store") },
+    yarn: { YARN_CACHE_FOLDER: path.join(config.cacheRoot, "node", "yarn") },
+    bun: { BUN_INSTALL_CACHE_DIR: path.join(config.cacheRoot, "node", "bun") },
+    uv: { UV_CACHE_DIR: path.join(config.cacheRoot, "python", "uv") },
+    pip: { PIP_CACHE_DIR: path.join(config.cacheRoot, "python", "pip") },
+    pip3: { PIP_CACHE_DIR: path.join(config.cacheRoot, "python", "pip") },
+    dotnet: { NUGET_PACKAGES: path.join(config.cacheRoot, "dotnet", "nuget") },
+    composer: { COMPOSER_CACHE_DIR: path.join(config.cacheRoot, "php", "composer") },
+    ccache: { CCACHE_DIR: path.join(config.cacheRoot, "native", "ccache") },
+    sccache: { SCCACHE_DIR: path.join(config.cacheRoot, "native", "sccache") }
+  };
+
+  assert.deepEqual(Object.keys(expected).sort(), [...SHIM_TOOLS].sort());
+  for (const tool of SHIM_TOOLS) {
+    const routed = environmentForTool(tool, [], { config, cwd: item.project, env: item.env, create: false });
+    assert.deepEqual(routed.applied, expected[tool], tool);
+    assert.equal(routed.env.CLEAN_DEVELOPMENT_ACTIVE, "1");
+    assert.equal(routed.env.CLEAN_DEVELOPMENT_WORKSPACE, fs.realpathSync(item.project));
+  }
 });
 
 test("workspace identity is stable per path and distinct for another checkout", (t) => {

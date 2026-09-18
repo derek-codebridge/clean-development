@@ -26,11 +26,12 @@ Status reviewed 18 September 2026. `[x]` means implemented and evidenced, `[~]` 
 ## Release gates
 
 - [x] MIT license, copyright, SECURITY.md, governance, contribution, release, support, CI, CodeQL, Dependabot, and launch docs.
-- [x] Isolated npm package verification, real Cargo/Go/npm/uv smoke checks, 79 automated tests, plugin/skill validators, and npm audit.
-- [~] Performance: latest no-op run measured 54.96 ms added median and 74.05 ms p95, but prior runs reached 145.14 ms p95; the provisional 75 ms p95 ceiling is not consistently met.
+- [x] Isolated npm package verification, real Cargo/Go/npm/uv smoke checks, 80 automated tests, plugin/skill validators, and npm audit.
+- [~] Performance: the latest four no-op runs measured 56.72–59.33 ms added median and 75.96–97.73 ms p95; prior runs reached 145.14 ms p95, so the provisional 75 ms p95 ceiling is not consistently met.
 - [ ] Capture baseline/enabled host model requests to verify token neutrality.
 - [ ] Complete Linux/Windows, native Apple/Xcode/SwiftPM, and full host acceptance.
 - [ ] Add native cache eviction and scratch expiry; scratch is currently reserved and retained.
-- [~] Commit, create the GitHub remote, publish npm with provenance, and run public release checks; requires explicit external authorization.
+- [x] Commit the local release-candidate repository and record the complete local evidence set.
+- [~] Create the GitHub remote, publish npm with provenance, and run public release checks; requires explicit external authorization.
 
 See [verification](verification.md), [agent integrations](agent-integrations.md), [safety model](safety-model.md), [performance](performance.md), and the [audit record](audit-2026-09-18.md). This file is the repository's authoritative acceptance ledger; the longer work-session design notes are not required for installation or operation.

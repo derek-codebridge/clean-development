@@ -15,6 +15,6 @@
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/magrathean-uk/clean-development",
-    "defaultPrompt": "Use Clean Development to show where this project's managed build files will go."
+    "defaultPrompt": "Use Clean Development only when explicitly requested."
   }
 }

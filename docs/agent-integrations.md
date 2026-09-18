@@ -50,6 +50,8 @@ Setup updates and uninstall must resolve the same agent configuration locations 
 
 The management skill is narrowly scoped to setup, status, diagnosis, and explicit pruning. Codex uses `skills/clean-development` with an `agents/openai.yaml` policy that disables implicit invocation. The Claude marketplace explicitly replaces root skill discovery with `claude-skills/`, whose copy uses `disable-model-invocation: true`, so Claude does not place its description in normal model context. The Grok marketplace points at the dedicated `.grok-plugin/` package, which intentionally contains no skills directory; management stays CLI-only there. The skill is not needed for routing, is never invoked by a shim, and does not tell an agent how to build software.
 
+The Codex plugin manifest must include a `defaultPrompt` field for the host schema. Its only entry is explicitly worded as an opt-in UX suggestion (`Use Clean Development only when explicitly requested.`); it is not a startup hook, session bootstrap, or normal routing context.
+
 The npm CLI path uses no skill at all. For the advertised token-neutral plugin routes, install Claude and Grok through their included marketplace manifests. Do not point `claude --plugin-dir` or `grok --plugin-dir` at the repository or npm package root: direct-root loading bypasses the marketplace's selected skill/plugin root and may discover the root Codex management skill. Other plugin hosts may catalogue bundle metadata according to their own rules; if even catalogue metadata is unacceptable, use only the npm CLI and launcher.
 
 ### Codex desktop access errors

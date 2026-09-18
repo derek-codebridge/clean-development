@@ -68,6 +68,15 @@ const codexSource = codexMarketplace.plugins?.[0]?.source;
 if (codexSource?.source !== "local" || codexSource?.path !== "./") {
   throw new Error("Codex marketplace must use the current local source/path format rooted at the package");
 }
+const rootManifest = JSON.parse(fs.readFileSync(path.join(root, "plugin.json"), "utf8"));
+const codexManifest = JSON.parse(fs.readFileSync(path.join(root, ".codex-plugin/plugin.json"), "utf8"));
+const defaultPrompts = [
+  ...(rootManifest.extensions?.["com.openai"]?.interface?.defaultPrompt || []),
+  codexManifest.interface?.defaultPrompt
+].filter(Boolean);
+if (defaultPrompts.some((prompt) => prompt !== "Use Clean Development only when explicitly requested.")) {
+  throw new Error("Plugin default prompts must remain explicit-only and must not bootstrap normal sessions");
+}
 const grokMarketplace = JSON.parse(fs.readFileSync(path.join(root, ".grok-plugin/marketplace.json"), "utf8"));
 const grokSource = grokMarketplace.plugins?.[0]?.source;
 if (grokSource?.type !== "local" || grokSource?.path !== "./.grok-plugin") {
