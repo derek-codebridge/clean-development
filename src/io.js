@@ -230,7 +230,12 @@ export async function acquireDirectoryLock(directory, { timeoutMs = 30_000 } = {
       if (error.code !== "EEXIST") throw error;
     }
 
-    validateRealDirectory(directory, "Lock directory");
+    try {
+      validateRealDirectory(directory, "Lock directory");
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
 
     let owner = null;
     try {
@@ -268,7 +273,12 @@ export function acquireDirectoryLockSync(directory, { timeoutMs = 30_000 } = {})
       if (error.code !== "EEXIST") throw error;
     }
 
-    validateRealDirectory(directory, "Lock directory");
+    try {
+      validateRealDirectory(directory, "Lock directory");
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
 
     let owner = null;
     try {

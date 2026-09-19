@@ -22,6 +22,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Claude environment writes now require the owner on every active hook invocation. Disabled-project transitions use an integrity-tagged cleanup block, and the generic packaged hook remains inert without an owner.
 - OpenCode launchers defer static cache variables to command shims so its additive environment hook can enter disabled projects safely; older fully routed parents fail closed instead of leaking cache routes.
 - Runtime and integration receipts validate ownership, hashes, referents, and configuration-location bindings before update or removal.
+- Directory-lock waiters now retry when the current owner releases the lock between an `EEXIST` result and validation, instead of failing with a transient `ENOENT`.
 - Cargo routing now protects nested and explicit managed targets with stable ownership checks and active leases, including concurrent and cross-workspace use.
 - Setup, preparation, pruning, executable probing, stale-lock handling, Windows argument forwarding, Yarn cache modes, and integration removal now fail closed on unsafe or ambiguous state.
 

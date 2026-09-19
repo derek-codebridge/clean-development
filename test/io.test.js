@@ -55,6 +55,63 @@ test("an unremovable stale sync lock still honors its timeout", (t) => {
   ));
 });
 
+function releaseLockDuringValidation(lock, callback) {
+  const owner = path.join(lock, "owner.json");
+  const lstatSync = fs.lstatSync;
+  let released = false;
+  fs.lstatSync = (file, options) => {
+    if (!released && path.resolve(file) === path.resolve(lock)) {
+      released = true;
+      fs.unlinkSync(owner);
+      fs.rmdirSync(lock);
+      const error = new Error("simulated concurrent lock release");
+      error.code = "ENOENT";
+      throw error;
+    }
+    return lstatSync(file, options);
+  };
+  const restore = () => { fs.lstatSync = lstatSync; };
+  try {
+    const result = callback();
+    if (result && typeof result.finally === "function") return result.finally(restore);
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
+  }
+}
+
+function transientLock(root) {
+  const lock = path.join(root, "transient.lock");
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, "owner.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    token: "departing-owner",
+    pid: process.pid,
+    acquiredAt: new Date().toISOString()
+  })}\n`);
+  return lock;
+}
+
+test("an async lock retries when the current owner releases before validation", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-lock-race-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const lock = transientLock(root);
+  const release = await releaseLockDuringValidation(lock, () => acquireDirectoryLock(lock, { timeoutMs: 100 }));
+  release();
+  assert.equal(fs.existsSync(lock), false);
+});
+
+test("a sync lock retries when the current owner releases before validation", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-lock-race-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const lock = transientLock(root);
+  const release = releaseLockDuringValidation(lock, () => acquireDirectoryLockSync(lock, { timeoutMs: 100 }));
+  release();
+  assert.equal(fs.existsSync(lock), false);
+});
+
 test("exclusive JSON creation never replaces an existing project file", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-exclusive-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
