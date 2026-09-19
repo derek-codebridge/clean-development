@@ -26,6 +26,12 @@ for (const file of bump.files) {
   if (version !== packageJson.version) throw new Error(`${file} has version ${version || "<missing>"}; expected ${packageJson.version}`);
 }
 
+const bugTemplate = fs.readFileSync(path.join(root, ".github/ISSUE_TEMPLATE/bug.yml"), "utf8");
+const bugTemplateVersion = bugTemplate.match(/id:\s*version\s*\n[\s\S]*?placeholder:\s*["']?([^"'\s#]+)["']?/)?.[1];
+if (bugTemplateVersion !== packageJson.version) {
+  throw new Error(`Bug report template suggests version ${bugTemplateVersion || "<missing>"}; expected ${packageJson.version}`);
+}
+
 const javascript = [];
 for (const top of ["bin", "src", "scripts", ".opencode"]) {
   const start = path.join(root, top);
@@ -86,4 +92,4 @@ if (!fs.existsSync(path.join(root, ".grok-plugin", "plugin.json")) || fs.existsS
   throw new Error("Dedicated Grok plugin must have a manifest and no skills directory");
 }
 
-console.log(`Checked ${javascript.length} JavaScript files and ${bump.files.length} synchronized version files.`);
+console.log(`Checked ${javascript.length} JavaScript files, ${bump.files.length} synchronized version files, and the bug-report version prompt.`);

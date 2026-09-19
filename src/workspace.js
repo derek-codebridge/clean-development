@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-const MANIFESTS = {
+export const MANIFESTS = {
   cargo: ["Cargo.toml"],
   go: ["go.work", "go.mod"],
   npm: ["package.json"],
@@ -16,6 +16,105 @@ const MANIFESTS = {
   dotnet: ["global.json", "*.sln", "*.csproj"],
   composer: ["composer.json"]
 };
+
+const NODE_LOCKFILES = Object.freeze({
+  npm: ["package-lock.json", "npm-shrinkwrap.json"],
+  pnpm: ["pnpm-lock.yaml"],
+  yarn: ["yarn.lock"],
+  bun: ["bun.lock", "bun.lockb"]
+});
+
+function directoryNames(directory) {
+  try {
+    return fs.readdirSync(directory);
+  } catch {
+    return [];
+  }
+}
+
+function projectEvidence(names) {
+  return [
+    "Cargo.toml", "go.work", "go.mod", "package.json", "pyproject.toml", "uv.lock",
+    "requirements.txt", "setup.py", "global.json", "composer.json", "pnpm-workspace.yaml"
+  ].some((name) => names.includes(name)) || names.some((name) => name.endsWith(".sln") || name.endsWith(".csproj"));
+}
+
+function nearestProjectRoot(start) {
+  let current = path.resolve(start);
+  while (true) {
+    const names = directoryNames(current);
+    if (projectEvidence(names)) return { root: current, names };
+    if (names.includes(".git")) return { root: current, names };
+    const parent = path.dirname(current);
+    if (parent === current) return { root: path.resolve(start), names: directoryNames(start) };
+    current = parent;
+  }
+}
+
+function packageManagerFromManifest(file) {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8")).packageManager;
+    if (typeof value !== "string") return null;
+    const name = value.split("@")[0];
+    return ["npm", "pnpm", "yarn", "bun"].includes(name) ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+export function detectStack(cwd = process.cwd()) {
+  const located = nearestProjectRoot(cwd);
+  const root = safeRealpath(located.root);
+  const { names } = located;
+  const present = new Set(names);
+  const tools = [];
+  const evidence = {};
+  const conflicts = [];
+  const add = (tool, files) => {
+    if (!tools.includes(tool)) tools.push(tool);
+    evidence[tool] = files.map((file) => path.join(root, file));
+  };
+
+  if (present.has("Cargo.toml")) add("cargo", ["Cargo.toml"]);
+  const goFiles = ["go.work", "go.mod"].filter((name) => present.has(name));
+  if (goFiles.length) add("go", goFiles);
+
+  if (present.has("package.json") || present.has("pnpm-workspace.yaml")) {
+    const declared = packageManagerFromManifest(path.join(root, "package.json"));
+    const locked = Object.entries(NODE_LOCKFILES)
+      .filter(([, files]) => files.some((file) => present.has(file)))
+      .map(([manager]) => manager);
+    const workspaceManager = present.has("pnpm-workspace.yaml") ? ["pnpm"] : [];
+    const managers = [...new Set([...(declared ? [declared] : []), ...workspaceManager, ...locked])];
+    if (managers.length > 1) conflicts.push({ family: "node", tools: managers, reason: "multiple package-manager declarations or lockfiles" });
+    for (const manager of managers.length ? managers : ["npm"]) {
+      const files = ["package.json", ...(manager === "pnpm" && present.has("pnpm-workspace.yaml") ? ["pnpm-workspace.yaml"] : []), ...(NODE_LOCKFILES[manager] || []).filter((file) => present.has(file))]
+        .filter((file) => present.has(file));
+      add(manager, files);
+      if (manager === "npm") add("npx", files);
+    }
+  }
+
+  const pythonFiles = ["pyproject.toml", "uv.lock", "requirements.txt", "setup.py"].filter((name) => present.has(name));
+  if (pythonFiles.length) {
+    if (present.has("uv.lock")) add("uv", pythonFiles.filter((name) => ["pyproject.toml", "uv.lock"].includes(name)));
+    if (!present.has("uv.lock") || present.has("requirements.txt") || present.has("setup.py")) {
+      add("pip", pythonFiles);
+      add("pip3", pythonFiles);
+    }
+  }
+
+  const dotnetFiles = names.filter((name) => name === "global.json" || name.endsWith(".sln") || name.endsWith(".csproj"));
+  if (dotnetFiles.length) add("dotnet", dotnetFiles);
+  if (present.has("composer.json")) add("composer", ["composer.json"]);
+
+  return {
+    root,
+    tools,
+    evidence,
+    conflicts
+  };
+}
 
 function argumentValue(args, names) {
   for (let index = 0; index < args.length; index += 1) {

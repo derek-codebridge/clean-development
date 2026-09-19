@@ -17,7 +17,11 @@ function definitions(config, workspace) {
     npm: { npm_config_cache: path.join(shared, "node", "npm") },
     npx: { npm_config_cache: path.join(shared, "node", "npm") },
     pnpm: { npm_config_cache: path.join(shared, "node", "npm"), npm_config_store_dir: path.join(shared, "node", "pnpm-store") },
-    yarn: { YARN_CACHE_FOLDER: path.join(shared, "node", "yarn") },
+    yarn: {
+      YARN_CACHE_FOLDER: path.join(shared, "node", "yarn"),
+      YARN_ENABLE_GLOBAL_CACHE: "false",
+      YARN_ENABLE_MIRROR: "false"
+    },
     bun: { BUN_INSTALL_CACHE_DIR: path.join(shared, "node", "bun") },
     uv: { UV_CACHE_DIR: path.join(shared, "python", "uv") },
     pip: { PIP_CACHE_DIR: path.join(shared, "python", "pip") },
@@ -30,6 +34,10 @@ function definitions(config, workspace) {
 }
 
 function isInjectedDefault(name, value, config, env) {
+  if (name === "CARGO_TARGET_DIR") {
+    return env.CLEAN_DEVELOPMENT_ACTIVE === "1"
+      && value === env.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR;
+  }
   if (name !== "npm_config_cache") return false;
   const pathKey = (candidate) => {
     const canonical = canonicalizePotentialPath(candidate);
@@ -160,6 +168,7 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
     for (const key of existingKeys) delete childEnv[key];
     childEnv[name] = value;
     applied[name] = value;
+    if (name === "YARN_ENABLE_GLOBAL_CACHE" || name === "YARN_ENABLE_MIRROR") continue;
     if (create || validateBase) {
       if (tool === "cargo" && name === "CARGO_TARGET_DIR") {
         if (create) {
@@ -176,6 +185,10 @@ export function environmentForTool(tool, args, { config, cwd = process.cwd(), en
       }
       if (tool !== "cargo") managedSubdirectory(config.cacheRoot, value, { create, label: "Managed cache path" });
     }
+  }
+  if (tool === "cargo") {
+    if (applied.CARGO_TARGET_DIR) childEnv.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR = applied.CARGO_TARGET_DIR;
+    else delete childEnv.CLEAN_DEVELOPMENT_CARGO_TARGET_DIR;
   }
   childEnv.CLEAN_DEVELOPMENT_ACTIVE = "1";
   childEnv.CLEAN_DEVELOPMENT_RESOLVED_ROOT = config.root;

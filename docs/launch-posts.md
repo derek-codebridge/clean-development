@@ -19,9 +19,10 @@ So I built **clean-development**. It is an open-source npm CLI that routes new s
 ```sh
 npm i -g clean-development
 clean-development setup --root "$HOME/Developer/.artifacts" --agents all
+clean-development agent codex --session session-only
 ```
 
-That gives you separate `caches/`, `builds/` and `scratch/` folders. Shared downloads stay reusable, while mutable Cargo output is split per workspace/worktree so two projects do not trample each other.
+Setup installs native integrations in pass-through mode. The explicit session choice starts routing and gives you separate `caches/`, `builds/` and `scratch/` folders. Shared downloads stay reusable, while mutable Cargo output is split per workspace/worktree so two projects do not trample each other.
 
 The important bit for me: this is runtime code, not another instruction prompt. Normal use adds no prompt bootstrap, MCP tools, model calls or extra agent tool calls. The shims work out the actual cwd when `cargo`, `go`, `npm`, `uv`, etc. run.
 
@@ -45,7 +46,10 @@ It routes supported Cargo/Go/npm/pnpm/uv/etc. storage at runtime, keeps shared c
 ```sh
 npm i -g clean-development
 clean-development setup --root "$HOME/Developer/.artifacts" --agents all
+clean-development run --session session-only -- cargo test
 ```
+
+Setup alone leaves native integrations in `skip` pass-through mode; the routed command follows the reviewed session choice.
 
 Repo: https://github.com/magrathean-uk/clean-development
 
@@ -55,7 +59,7 @@ I would love a real-world breakage report, especially from monorepos or multiple
 
 > coding agents are brilliant at building things — and leaving Cargo, Go and npm rubbish everywhere.
 >
-> I built clean-development: new build/cache files go under one managed root. no prompt injection, no MCP, no telemetry.
+> I built clean-development: after an explicit session choice, new build/cache files go under one managed root. setup alone stays pass-through. no prompt injection, no MCP, no telemetry.
 >
 > MIT OSS: https://github.com/magrathean-uk/clean-development
 

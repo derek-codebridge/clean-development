@@ -2,7 +2,7 @@
 
 Keep new development caches and supported build output in one managed place.
 
-`clean-development` is a local, open-source storage router for developers and coding agents. It gives supported tools a predictable cache or build directory without asking the model to remember cleanup rules on every turn.
+`clean-development` is a local, open-source storage router for developers and coding agents. It gives supported tools a predictable cache or build directory after an explicit session choice, without asking the model to remember cleanup rules on every turn. Installed native integrations expose the stable CLI and shims in `skip` pass-through mode until that choice is made.
 
 ```text
 your agent or terminal
@@ -14,10 +14,10 @@ your agent or terminal
   ~/Developer/.artifacts/
     caches/       shared downloads and compiler caches
     builds/       one directory per Cargo workspace or manifest root
-    scratch/      reserved scratch space; not pruned in 0.1.0
+    scratch/      reserved scratch space; not pruned in 0.2.0
 ```
 
-The project is at `0.1.0` and should be treated as an early release. The npm and GitHub names were clear when this repository was prepared, but publication is a separate step.
+The project is at `0.2.0` and should be treated as an early release. The npm and GitHub names were clear when this repository was prepared, but publication is a separate step.
 
 ## Install
 
@@ -35,7 +35,7 @@ Or run setup once with `npx`; setup copies the runtime to a durable application-
 npx clean-development setup --root "$HOME/Developer/.artifacts" --agents all
 ```
 
-An `npx` process has a temporary, project-influenced `PATH`. Clean Development refuses to save that PATH into Codex or Grok's global configuration and reports their stable launchers instead. Claude's absolute hook and the durable runtime are still installed. For native Codex/Grok activation, run the globally installed command from a fresh shell; otherwise use `clean-development-codex` or `clean-development-grok`.
+An `npx` process has a temporary, project-influenced `PATH`. Clean Development refuses to save that PATH into Codex's global configuration and reports its stable launcher instead. Claude's absolute hook and the durable runtime are still installed. To install Codex's native pass-through policy, run the globally installed command from a fresh shell; routing still requires an explicit launcher/session choice. Grok setup writes an owned `toolset.bash.cmd_prefix` that sources the durable runtime's environment helper in default-skip mode; it does not persist the temporary npm PATH.
 
 For this source checkout:
 
@@ -45,7 +45,9 @@ npm test
 node ./bin/clean-development.js setup --dry-run --root "$HOME/Developer/.artifacts"
 ```
 
-`setup` is explicit. Installing the npm package does not edit agent settings, install hooks, or move existing files. If a host discovers the bundled Claude, OpenCode, or Pi integration before setup, activation stays dormant: it does not create the runtime, prepend shims, or change a command environment until an installed runtime receipt exists.
+`setup` is explicit. Installing the npm package does not edit agent settings, install hooks, or move existing files. If a host discovers the bundled Claude, OpenCode, or Pi integration before setup, activation stays dormant. A later runtime receipt permits the native entry point to expose the stable command path, but it remains in `skip` pass-through mode until an explicit choice.
+
+After setup, native integrations start each repository in consent-pending pass-through mode. They expose the durable `clean-development` command and shims, set `CLEAN_DEVELOPMENT_SESSION_MODE=skip`, and leave ordinary tool storage unchanged. In an already-open native session, review the plan and use an explicit `clean-development run --session session-only|persist -- ...`; the inherited `skip` intentionally suppresses a second launcher prompt. An effective project setting of `enabled: false` remains inert.
 
 ## Pick where managed files go
 
@@ -91,6 +93,38 @@ clean-development prepare
 
 ## Use it with an agent
 
+Review the project and storage plan before launching:
+
+```sh
+clean-development session --dry-run --json
+# From an ordinary terminal with no inherited native session mode:
+clean-development agent codex
+```
+
+An interactive launcher shows detected tools, cache/build destinations, and the exact project configuration it could create. Choose **session only** to route this process and its children, **save project settings** to also create the reviewed `.clean-development.json`, or **skip** to launch without Clean Development routing. Session only is the Enter default. Existing project configuration is retained rather than overwritten.
+
+For scripts or an explicit choice, use `--session` before the agent's argument separator:
+
+```sh
+clean-development agent codex --session session-only -- exec "Run the tests"
+clean-development agent grok --session persist
+clean-development run --session skip -- cargo test
+```
+
+Noninteractive `agent`, `run`, and stable `clean-development-AGENT` launcher calls default to `session-only`: they prepare managed storage and route supported tools without saving project settings. Direct native host entry points default to `skip`. Routed session choices refuse any managed root inside the detected project. `skip` bypasses new runtime creation and managed routing. `session --dry-run` is read-only; `session --session persist` can save the reviewed settings without launching anything. The standalone `session` command does not change the parent shell's environment; an already-running agent must use `clean-development run --session ... -- COMMAND` for routed child commands or relaunch through `clean-development agent`.
+
+Native hooks do not silently choose that noninteractive default. A directly opened Codex, Claude, Grok, OpenCode, or Pi session starts with the installed shims in pass-through mode until the user or the explicitly invoked management skill chooses a mode. The skill first shows the read-only plan and asks before any project file is created. Native Codex launcher runs pass the selected mode as a command-line configuration override so its installed `skip` default cannot supersede the explicit choice.
+
+Inside such a native session, make the approved transition explicit:
+
+```sh
+clean-development run --session session-only -- cargo test
+# or start a child agent explicitly
+clean-development agent codex --session session-only -- exec "Run the tests"
+```
+
+Detection checks nearby manifests and lockfiles without running project code, installing dependencies, or recursively scanning source. Detected shared-cache variables are applied to the child environment once; Cargo's target remains dynamic so its shim can select and protect the workspace used by each command. See [session choices](docs/configuration.md#session-choices) for precedence and persistence details.
+
 The runtime activators and launchers do not add bootstrap instructions, MCP schemas, `AGENTS.md` text, or model calls. The optional management skill is explicit-only for Codex and for Claude when installed through the included marketplace manifest; it is not part of command routing. Do not load this repository or npm package root directly with `claude --plugin-dir` or `grok --plugin-dir`: direct-root loading bypasses the marketplace's selected skill/plugin root. Use the marketplace route or `clean-development setup`/the launchers instead.
 
 ```sh
@@ -106,26 +140,26 @@ The repository targets the same 13 agent families and 14 named surfaces document
 
 | Agent surface | Route included | Current status |
 |---|---|---|
-| Claude Code | `SessionStart`/`CwdChanged` activation and `clean-development-claude` launcher | Implemented; real-host acceptance pending |
-| Antigravity | `clean-development-antigravity` launcher; Claude-compatible metadata | Launcher smoke passed with `agy` 1.2.6; model workflow pending |
-| Codex App | `shell_environment_policy` activation; Codex plugin and marketplace metadata | Implemented; app restart/sandbox acceptance pending |
-| Codex CLI | `shell_environment_policy` activation and `clean-development-codex` launcher | Config parsed and launcher smoke passed with 0.154.0; model workflow pending |
+| Claude Code | `SessionStart`/`CwdChanged` pass-through integration and `clean-development-claude` launcher | Implemented; real-host acceptance pending |
+| Antigravity | `clean-development-antigravity` launcher; Claude-compatible metadata | Routing and short model workflow passed with `agy` 1.2.7; long print-mode commands are canceled by an upstream lifecycle bug |
+| Codex App | Default-skip `shell_environment_policy`; Codex plugin and marketplace metadata | Implemented; app restart/sandbox acceptance pending |
+| Codex CLI | Non-login-shell `clean-development-codex` launcher and native environment policy | Model-backed Rust workflow passed with 0.154.0, Terra high, managed Cargo output, and no local `target` |
 | Cursor | Cursor manifest and `clean-development-cursor` launcher | Launcher/package route only; acceptance pending |
 | Devin CLI | Devin manifest and `clean-development-devin` launcher | Launcher/package route only; acceptance pending |
 | Factory Droid | `clean-development-droid` launcher; Claude-compatible metadata | Launcher/package route only; acceptance pending |
 | Gemini CLI | Context-free extension manifest and `clean-development-gemini` launcher | Launcher smoke passed with 0.54.4; model workflow pending |
 | GitHub Copilot CLI | `clean-development-copilot` launcher; Claude-compatible metadata | Launcher smoke passed with 1.0.80; model workflow pending |
-| Grok Build CLI | Shell-environment activation, plugin metadata, and `clean-development-grok` launcher | Config parsed, skill-free marketplace package installed, and launcher smoke passed with 1.0.34; model workflow pending |
+| Grok Build CLI | Owned `toolset.bash.cmd_prefix`, `clean-development-grok` launcher, and package metadata | Model-shell routing passed with 1.0.34 after the command prefix repaired Grok's login-PATH replacement |
 | Kimi Code | Kimi manifest and `clean-development-kimi` launcher | Launcher/package route only; acceptance pending |
-| OpenCode | `shell.env` plugin and `clean-development-opencode` launcher | Implemented but host-version-dependent; acceptance pending |
-| Pi | Bash `spawnHook` extension and `clean-development-pi` launcher | Implemented; package acceptance pending |
+| OpenCode | Default-skip `shell.env` plugin and deferred-cache `clean-development-opencode` launcher | Additive host environment contract is regression-tested; real model workflow pending |
+| Pi | Default-skip Bash `spawnHook` extension and `clean-development-pi` launcher | Implemented; package acceptance pending |
 | Hermes Agent | Hermes manifest and `clean-development-hermes` launcher | Launcher/package route only; acceptance pending |
 
-Here, a zero-context launcher means a small local executable that prepends the shim directory to `PATH` and starts the CLI. It injects no prompt text. A manifest is distribution metadata only; it does not prove that a host installed the package or passed the environment to its shell. See [agent integrations](docs/agent-integrations.md) for exact routes and release gates.
+Here, a zero-context launcher means a small local executable that offers the terminal session choice, then starts the CLI with the selected environment. The terminal question injects no model prompt text. Claude, Codex, Grok, OpenCode, and Pi native entries default to `skip`; setup alone does not authorize routing. A manifest is distribution metadata only; it does not prove that a host installed the package or passed the environment to its shell. The host observations above predate the v0.2.0 consent flow and required a routed mode; final acceptance is tracked in [verification](docs/verification.md). See [agent integrations](docs/agent-integrations.md) for exact routes and release gates.
 
 ## Supported tools
 
-The current shims route only native cache/output settings that have a clear ownership boundary. Existing explicit environment values win unless `CLEAN_DEVELOPMENT_FORCE=1` is deliberately set.
+When an explicit routed session mode is active, the shims change only native cache/output settings that have a clear ownership boundary. Existing explicit environment values win unless `CLEAN_DEVELOPMENT_FORCE=1` is deliberately set.
 
 | Command | Routed storage |
 |---|---|
@@ -151,6 +185,9 @@ clean-development setup --root /path/to/artifacts --agents claude,codex,grok
 clean-development update --json
 clean-development prepare --dry-run
 clean-development prepare
+clean-development session --dry-run --json
+clean-development session --session persist --json
+clean-development run --session session-only -- npm test
 clean-development status --json
 clean-development status --sizes
 clean-development doctor --json

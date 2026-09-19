@@ -1,6 +1,6 @@
 {
   "name": "clean-development",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Package metadata for clean-development; use its Devin launcher for runtime activation.",
   "author": {
     "name": "Magrathean UK"
@@ -8,5 +8,9 @@
   "homepage": "https://github.com/magrathean-uk/clean-development",
   "repository": "https://github.com/magrathean-uk/clean-development",
   "license": "MIT",
-  "keywords": ["build-cache", "developer-tools", "storage"]
+  "keywords": [
+    "build-cache",
+    "developer-tools",
+    "storage"
+  ]
 }

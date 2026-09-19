@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS } from "./constants.js";
-import { readJson, writeJsonAtomic } from "./io.js";
+import { readJson, writeJsonAtomic, writeJsonExclusive } from "./io.js";
 import { assertSafeManagedRoot, environmentValue, platformPaths } from "./platform.js";
 
 const PROJECT_KEYS = new Set(["$schema", "schemaVersion", "enabled", "root", "cacheRoot", "buildRoot", "scratchRoot", "retention", "tools"]);
@@ -145,7 +145,7 @@ export function writeUserConfig(config, env = process.env) {
   return locations.configPath;
 }
 
-export function writeProjectConfig(file, value, { force = false } = {}) {
+export function writeProjectConfig(file, value, { force = false, exclusive = false, expectedParent = null } = {}) {
   if (fs.existsSync(file) && !force) throw new Error(`${file} already exists; use --force to replace it`);
   const output = {
     $schema: "https://raw.githubusercontent.com/magrathean-uk/clean-development/main/schemas/project-config.schema.json",
@@ -153,5 +153,6 @@ export function writeProjectConfig(file, value, { force = false } = {}) {
     ...value
   };
   validateConfig(output, file);
-  writeJsonAtomic(file, output);
+  if (exclusive) writeJsonExclusive(file, output, { expectedParent });
+  else writeJsonAtomic(file, output);
 }

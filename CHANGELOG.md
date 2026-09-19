@@ -2,6 +2,29 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Compatibility can still change during `0.x` releases.
 
+## [0.2.0] - 2026-09-19
+
+### Added
+
+- Read-only project stack detection and a consent-gated session plan with session-only, saved project settings, and skip choices.
+- Static cache environment overlays for detected tools, while Cargo targets continue through workspace-aware ownership and lease routing.
+- Interactive agent-launch prompts and explicit `--session` controls for automation; noninteractive launches default to session-only and never persist repository settings.
+- A deterministic multi-language fixture lab and isolated real-tool smoke harness with recorded artifact checks.
+- Native Grok Build command-prefix activation that restores managed shims after Grok captures its login-shell environment.
+
+### Fixed
+
+- Session-only activation leaves the repository unchanged, persistence writes only the exact reviewed `.clean-development.json`, and skip bypasses new runtime creation and managed routing. Preinstalled native shims remain available in pass-through mode.
+- Codex CLI launchers now disable login-shell command execution so macOS `path_helper` cannot move native tools ahead of Clean Development's managed shims.
+- Fresh native Codex integration owns the matching `allow_login_shell = false` setting. Existing user shell policies or conflicting login-shell choices are preserved and reported as launcher fallbacks.
+- Generated shell activation now keeps the managed shim directory first, defaults native startup to pass-through `skip`, and preserves an inherited explicit session choice.
+- Native Codex configuration starts in `skip`; routed launchers override it with the reviewed mode. Claude environment-file blocks are bound to the installed receipt owner and exact whole-line markers.
+- Claude environment writes now require the owner on every active hook invocation. Disabled-project transitions use an integrity-tagged cleanup block, and the generic packaged hook remains inert without an owner.
+- OpenCode launchers defer static cache variables to command shims so its additive environment hook can enter disabled projects safely; older fully routed parents fail closed instead of leaking cache routes.
+- Runtime and integration receipts validate ownership, hashes, referents, and configuration-location bindings before update or removal.
+- Cargo routing now protects nested and explicit managed targets with stable ownership checks and active leases, including concurrent and cross-workspace use.
+- Setup, preparation, pruning, executable probing, stale-lock handling, Windows argument forwarding, Yarn cache modes, and integration removal now fail closed on unsafe or ambiguous state.
+
 ## [0.1.0] - 2026-09-19
 
 ### Added

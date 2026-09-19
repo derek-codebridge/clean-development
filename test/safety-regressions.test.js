@@ -639,12 +639,19 @@ test("the Claude plugin hook prefers its bundled CLI over a PATH impostor", { sk
     CLAUDE_ENV_FILE: environmentFile,
     PATH: [item.fakeBin, path.dirname(process.execPath)].join(path.delimiter)
   };
-  writeUserConfig({ root: path.join(item.root, "managed"), enabled: true, agents: ["claude"] }, env);
-  ensureRuntime(resolveConfig({ cwd: item.project, env }));
-  const result = spawnSync(path.join(REPOSITORY, "hooks", "session-start"), [], { cwd: item.project, env, encoding: "utf8" });
+  const setup = spawnSync(process.execPath, [CLI, "setup", "--root", path.join(item.root, "managed"), "--agents", "claude", "--json"], {
+    cwd: item.project, env, encoding: "utf8"
+  });
+  assert.equal(setup.status, 0, setup.stderr);
+  const unbound = spawnSync(path.join(REPOSITORY, "hooks", "session-start"), [], { cwd: item.project, env, encoding: "utf8" });
+  assert.equal(unbound.status, 0, unbound.stderr);
+  assert.equal(fs.existsSync(environmentFile), false);
+  assert.equal(fs.existsSync(hijacked), false);
+  const owner = JSON.parse(setup.stdout).integrations.find((entry) => entry.agent === "claude").ownershipId;
+  const result = spawnSync(path.join(REPOSITORY, "hooks", "session-start"), [owner], { cwd: item.project, env, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.existsSync(hijacked), false);
-  assert.match(fs.readFileSync(environmentFile, "utf8"), /CLEAN_DEVELOPMENT_ACTIVE/);
+  assert.match(fs.readFileSync(environmentFile, "utf8"), /CLEAN_DEVELOPMENT_SESSION_MODE=skip/);
 });
 
 test("concurrent first Cargo invocations converge on one owned build directory", async (t) => {
@@ -687,12 +694,16 @@ test("concurrent setup converges on one owned integration per agent", async (t) 
   const settings = JSON.parse(fs.readFileSync(path.join(env.CLAUDE_CONFIG_DIR, "settings.json"), "utf8"));
   const ownedHooks = settings.hooks.SessionStart.flatMap((entry) => entry.hooks || []).filter((hook) => /hook session-start --owner/.test(hook.command || ""));
   assert.equal(ownedHooks.length, 1);
-  for (const home of [env.CODEX_HOME, env.GROK_HOME]) {
-    const contents = fs.readFileSync(path.join(home, "config.toml"), "utf8");
-    assert.equal((contents.match(/clean-development begin/g) || []).length, 1);
-  }
+  const codex = fs.readFileSync(path.join(env.CODEX_HOME, "config.toml"), "utf8");
+  assert.equal((codex.match(/clean-development begin/g) || []).length, 1);
+  const grokConfig = fs.readFileSync(path.join(env.GROK_HOME, "config.toml"), "utf8");
+  assert.equal((grokConfig.match(/clean-development begin/g) || []).length, 1);
+  assert.match(grokConfig, /cmd_prefix = ".*clean-development-shell-env/);
   const receipt = JSON.parse(fs.readFileSync(path.join(item.root, "data", "state", "integrations.json"), "utf8"));
-  assert.equal(receipt.integrations.filter((entry) => ["claude", "codex", "grok"].includes(entry.agent)).length, 3);
+  assert.deepEqual(receipt.integrations.map((entry) => entry.agent).sort(), ["claude", "codex", "grok"]);
+  const grok = receipt.integrations.find((entry) => entry.agent === "grok");
+  assert.equal(grok.mode, "native-shell-environment");
+  assert.equal(grok.file, path.join(env.GROK_HOME, "config.toml"));
 });
 
 test("concurrent prepare calls converge on the same project roots", async (t) => {
@@ -729,20 +740,30 @@ test("setup and uninstall serialize to a consistent final state", async (t) => {
 
   const runtime = JSON.parse(fs.readFileSync(path.join(item.root, "data", "state", "runtime.json"), "utf8"));
   const launcher = path.join(item.root, "data", "bin", process.platform === "win32" ? "clean-development.cmd" : "clean-development");
+  const grokLauncher = path.join(item.root, "data", "bin", process.platform === "win32" ? "clean-development-grok.cmd" : "clean-development-grok");
+  const receipt = JSON.parse(fs.readFileSync(path.join(item.root, "data", "state", "integrations.json"), "utf8"));
   const settings = JSON.parse(fs.readFileSync(path.join(env.CLAUDE_CONFIG_DIR, "settings.json"), "utf8"));
   const ownedHooks = (settings.hooks?.SessionStart || []).flatMap((entry) => entry.hooks || []).filter((hook) => /hook session-start --owner/.test(hook.command || ""));
-  const markerCounts = [env.CODEX_HOME, env.GROK_HOME].map((home) => {
-    const contents = fs.readFileSync(path.join(home, "config.toml"), "utf8");
-    return (contents.match(/clean-development begin/g) || []).length;
-  });
+  const codex = fs.readFileSync(path.join(env.CODEX_HOME, "config.toml"), "utf8");
+  const markerCount = (codex.match(/clean-development begin/g) || []).length;
+  const grokConfig = fs.readFileSync(path.join(env.GROK_HOME, "config.toml"), "utf8");
+  const grokMarkerCount = (grokConfig.match(/clean-development begin/g) || []).length;
   if (runtime.status === "installed") {
     assert.equal(fs.existsSync(launcher), true);
+    assert.equal(fs.existsSync(grokLauncher), true);
     assert.equal(ownedHooks.length, 1);
-    assert.deepEqual(markerCounts, [1, 1]);
+    assert.equal(markerCount, 1);
+    assert.deepEqual(receipt.integrations.map((entry) => entry.agent).sort(), ["claude", "codex", "grok"]);
+    const grok = receipt.integrations.find((entry) => entry.agent === "grok");
+    assert.equal(grok.mode, "native-shell-environment");
+    assert.equal(grokMarkerCount, 1);
   } else {
     assert.equal(runtime.status, "uninstalled");
     assert.equal(fs.existsSync(launcher), false);
+    assert.equal(fs.existsSync(grokLauncher), false);
     assert.equal(ownedHooks.length, 0);
-    assert.deepEqual(markerCounts, [0, 0]);
+    assert.equal(markerCount, 0);
+    assert.equal(grokMarkerCount, 0);
+    assert.deepEqual(receipt.integrations, []);
   }
 });

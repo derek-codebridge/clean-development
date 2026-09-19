@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clean-development",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Grok marketplace metadata for managed build and cache storage without prompt injection.",
   "author": {
     "name": "Magrathean UK",
@@ -10,5 +10,9 @@
   "homepage": "https://github.com/magrathean-uk/clean-development",
   "repository": "https://github.com/magrathean-uk/clean-development",
   "license": "MIT",
-  "keywords": ["build-cache", "developer-tools", "ai-agent"]
+  "keywords": [
+    "build-cache",
+    "developer-tools",
+    "ai-agent"
+  ]
 }

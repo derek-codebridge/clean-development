@@ -55,6 +55,50 @@ export function writeJsonAtomic(file, value) {
   writeTextAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function sameIdentity(stat, identity) {
+  return String(stat.dev) === String(identity.dev) && String(stat.ino) === String(identity.ino);
+}
+
+export function writeJsonExclusive(file, value, { expectedParent = null } = {}) {
+  const contents = `${JSON.stringify(value, null, 2)}\n`;
+  const parent = path.dirname(file);
+  if (expectedParent) {
+    const parentStat = fs.lstatSync(parent, { bigint: true });
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink() || !sameIdentity(parentStat, expectedParent)) {
+      throw new Error(`Project directory changed after review: ${parent}`);
+    }
+  } else {
+    fs.mkdirSync(parent, { recursive: true });
+  }
+  let descriptor;
+  let createdIdentity;
+  try {
+    descriptor = fs.openSync(file, "wx", 0o600);
+    createdIdentity = fs.fstatSync(descriptor, { bigint: true });
+    fs.writeFileSync(descriptor, contents);
+    fs.fsyncSync(descriptor);
+    if (expectedParent) {
+      const parentAfter = fs.lstatSync(parent, { bigint: true });
+      const fileAfter = fs.lstatSync(file, { bigint: true });
+      if (
+        !parentAfter.isDirectory() || parentAfter.isSymbolicLink() || !sameIdentity(parentAfter, expectedParent)
+        || !fileAfter.isFile() || fileAfter.isSymbolicLink() || !sameIdentity(fileAfter, createdIdentity)
+      ) throw new Error(`Project directory changed while saving reviewed configuration: ${parent}`);
+    }
+  } catch (error) {
+    if (createdIdentity) {
+      try { fs.ftruncateSync(descriptor, 0); } catch {}
+      try {
+        const current = fs.lstatSync(file, { bigint: true });
+        if (current.isFile() && !current.isSymbolicLink() && sameIdentity(current, createdIdentity)) fs.unlinkSync(file);
+      } catch {}
+    }
+    throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
 export function writeTextAtomic(file, contents, { mode = 0o600 } = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   let outputMode = mode;
@@ -197,8 +241,7 @@ export async function acquireDirectoryLock(directory, { timeoutMs = 30_000 } = {
     const age = lockAgeMs(directory);
     const stale = owner ? (!processIsAlive(owner.pid) && age > 1_000) : age > 5_000;
     if (stale) {
-      removeLockDirectory(directory, owner?.token || null);
-      continue;
+      if (removeLockDirectory(directory, owner?.token || null)) continue;
     }
     if (Date.now() - started >= timeoutMs) throw new Error(`Timed out waiting for setup lock: ${directory}`);
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -236,8 +279,7 @@ export function acquireDirectoryLockSync(directory, { timeoutMs = 30_000 } = {})
     const age = lockAgeMs(directory);
     const stale = owner ? (!processIsAlive(owner.pid) && age > 1_000) : age > 5_000;
     if (stale) {
-      removeLockDirectory(directory, owner?.token || null);
-      continue;
+      if (removeLockDirectory(directory, owner?.token || null)) continue;
     }
     if (Date.now() - started >= timeoutMs) throw new Error(`Timed out waiting for runtime lock: ${directory}`);
     Atomics.wait(waiter, 0, 0, 50);

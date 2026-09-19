@@ -4,12 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { environmentForTool } from "./adapters.js";
+import { environmentForTool, OWNERSHIP_MARKER } from "./adapters.js";
 import { resolveConfig } from "./config.js";
 import { SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } from "./constants.js";
 import { acquireDirectoryLockSync, ensureRealDirectory, readJson, writeJsonAtomic } from "./io.js";
 import { canonicalizePotentialPath, environmentValue, isPathInside, prependUniquePath, setEnvironmentValue } from "./platform.js";
-import { acquireWorkspaceLock, createLease, recordWorkspace, workspaceRecord } from "./state.js";
+import { environmentWithoutSessionRouting, normalizeSessionMode, SESSION_MODE_ENV } from "./session.js";
+import { acquireWorkspaceLock, createLease, listWorkspaceRecords, recordWorkspace, workspaceRecord } from "./state.js";
 import { identifyWorkspace } from "./workspace.js";
 
 const RUNTIME_MARKER = ".clean-development-runtime.json";
@@ -159,7 +160,7 @@ function runtimeReceipt(config) {
   }
 
   if (receipt.version === VERSION) {
-    const expectedLaunchers = launcherSpecifications(versionRoot, config.locations.binDir).specifications;
+    const expectedLaunchers = launcherSpecifications(versionRoot, config.locations.binDir, receipt.node).specifications;
     const expectedLauncherMap = new Map(expectedLaunchers.map((entry) => [path.resolve(entry.path), entry.sha256]));
     if (receipt.ownedFiles.length !== expectedLauncherMap.size || receipt.ownedFiles.some((entry) => expectedLauncherMap.get(path.resolve(entry.path)) !== entry.sha256)) {
       throw new Error(`Runtime receipt launcher inventory does not match ${VERSION}: ${file}`);
@@ -261,24 +262,44 @@ function writeExecutable(file, contents) {
   fs.renameSync(temporary, file);
 }
 
-function launcherSpecifications(versionRoot, binDir) {
+function launcherSpecifications(versionRoot, binDir, node = process.execPath) {
   const cli = path.join(versionRoot, "bin", "clean-development.js");
   const shim = path.join(versionRoot, "bin", "clean-development-shim.js");
   const specifications = [];
   const add = (name, contents) => specifications.push({ path: path.join(binDir, name), contents, sha256: sha256(contents) });
   if (process.platform === "win32") {
-    add("clean-development.cmd", `@echo off\r\n"${process.execPath}" "${cli}" %*\r\n`);
-    for (const tool of SHIM_TOOLS) add(`${tool}.cmd`, `@echo off\r\n"${process.execPath}" "${shim}" ${tool} %*\r\n`);
+    add("clean-development.cmd", `@echo off\r\n"${node}" "${cli}" %*\r\n`);
+    for (const tool of SHIM_TOOLS) add(`${tool}.cmd`, `@echo off\r\n"${node}" "${shim}" ${tool} %*\r\n`);
   } else {
-    add("clean-development", `#!/bin/sh\nexec ${quoteSh(process.execPath)} ${quoteSh(cli)} "$@"\n`);
+    add("clean-development", `#!/bin/sh\nexec ${quoteSh(node)} ${quoteSh(cli)} "$@"\n`);
+    add("clean-development-shell-env", [
+      "#!/bin/sh",
+      `if [ -z "\${${SESSION_MODE_ENV}+x}" ]; then`,
+      `  ${SESSION_MODE_ENV}=skip`,
+      `  export ${SESSION_MODE_ENV}`,
+      "fi",
+      `_clean_development_bin=${quoteSh(binDir)}`,
+      'case "${PATH:-}" in',
+      '  "${_clean_development_bin}"|"${_clean_development_bin}:"*) ;;',
+      '  *) PATH="${_clean_development_bin}${PATH:+:${PATH}}" ;;',
+      "esac",
+      "export PATH",
+      `if [ "\${${SESSION_MODE_ENV}}" = "skip" ]; then`,
+      "  unset CLEAN_DEVELOPMENT_ACTIVE",
+      "else",
+      "  export CLEAN_DEVELOPMENT_ACTIVE=1",
+      "fi",
+      "unset _clean_development_bin",
+      ""
+    ].join("\n"));
     for (const tool of SHIM_TOOLS) {
-      add(tool, `#!/bin/sh\nexec ${quoteSh(process.execPath)} ${quoteSh(shim)} ${quoteSh(tool)} "$@"\n`);
+      add(tool, `#!/bin/sh\nexec ${quoteSh(node)} ${quoteSh(shim)} ${quoteSh(tool)} "$@"\n`);
     }
   }
   for (const agent of Object.keys(SUPPORTED_AGENTS)) {
     const filename = process.platform === "win32" ? `clean-development-${agent}.cmd` : `clean-development-${agent}`;
-    if (process.platform === "win32") add(filename, `@echo off\r\n"${process.execPath}" "${cli}" agent ${agent} -- %*\r\n`);
-    else add(filename, `#!/bin/sh\nexec ${quoteSh(process.execPath)} ${quoteSh(cli)} agent ${quoteSh(agent)} -- "$@"\n`);
+    if (process.platform === "win32") add(filename, `@echo off\r\n"${node}" "${cli}" agent ${agent} -- %*\r\n`);
+    else add(filename, `#!/bin/sh\nexec ${quoteSh(node)} ${quoteSh(cli)} agent ${quoteSh(agent)} -- "$@"\n`);
   }
   return { cli, specifications };
 }
@@ -484,7 +505,7 @@ function candidateNames(executable, env) {
   const extension = path.extname(executable);
   if (extension) return [executable];
   const pathExt = (environmentValue(env, "PATHEXT") || ".EXE;.CMD;.BAT;.COM").split(";");
-  return [executable, ...pathExt.map((item) => `${executable}${item.toLowerCase()}`), ...pathExt.map((item) => `${executable}${item.toUpperCase()}`)];
+  return [...pathExt.map((item) => `${executable}${item.toLowerCase()}`), ...pathExt.map((item) => `${executable}${item.toUpperCase()}`), executable];
 }
 
 function sameFile(left, right) {
@@ -498,12 +519,18 @@ function sameFile(left, right) {
 }
 
 function isGeneratedShim(file) {
+  let descriptor;
   try {
-    const contents = fs.readFileSync(file, "utf8").slice(0, 4096);
+    descriptor = fs.openSync(file, "r");
+    const prefix = Buffer.alloc(4096);
+    const bytes = fs.readSync(descriptor, prefix, 0, prefix.length, 0);
+    const contents = prefix.toString("utf8", 0, bytes);
     return contents.includes("clean-development-shim.js")
       || (contents.includes("import { runTool }") && contents.includes("import { resolveConfig }"));
   } catch {
     return false;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
   }
 }
 
@@ -529,9 +556,52 @@ export function resolveExecutable(executable, env, excludedDirectory) {
   return null;
 }
 
+function escapeCmd(value) {
+  return value.replace(/[()\[\]%!^"`<>&|;, *?]/g, (character) => `^${character}`);
+}
+
+function quoteWindowsArgument(value) {
+  // Quote for the Windows argv parser before protecting cmd.exe metacharacters.
+  let quoted = '"';
+  let backslashes = 0;
+  for (const character of String(value)) {
+    if (character === "\\") {
+      backslashes += 1;
+      continue;
+    }
+    quoted += "\\".repeat(character === '"' ? backslashes * 2 + 1 : backslashes) + character;
+    backslashes = 0;
+  }
+  return quoted + "\\".repeat(backslashes * 2) + '"';
+}
+
+export function windowsBatchInvocation(command, args, env) {
+  if ([command, ...args].some((value) => /[\r\n\0]/.test(String(value)))) {
+    throw new Error("Windows batch commands cannot contain newlines or NUL bytes");
+  }
+  const doubleEscape = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i.test(command);
+  const escapedArgs = args.map((value) => {
+    const escaped = escapeCmd(quoteWindowsArgument(value));
+    return doubleEscape ? escapeCmd(escaped) : escaped;
+  });
+  const commandLine = [escapeCmd(path.win32.normalize(command)), ...escapedArgs].join(" ");
+  return {
+    command: environmentValue(env, "ComSpec") || "cmd.exe",
+    args: ["/d", "/v:off", "/s", "/c", `"${commandLine}"`],
+    windowsVerbatimArguments: true
+  };
+}
+
 export function spawnInherited(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd || process.cwd(), env: options.env || process.env, stdio: "inherit", windowsHide: false });
+    const env = options.env || process.env;
+    const invocation = process.platform === "win32" && /\.(cmd|bat)$/i.test(command)
+      ? windowsBatchInvocation(command, args, env)
+      : { command, args };
+    const child = spawn(invocation.command, invocation.args, {
+      cwd: options.cwd || process.cwd(), env, stdio: "inherit", windowsHide: false,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments || false
+    });
     try {
       options.onSpawn?.(child);
     } catch (error) {
@@ -563,20 +633,107 @@ export function spawnInherited(command, args, options = {}) {
   });
 }
 
+function managedCargoTargetOwners(config, target, cwd) {
+  if (!target) return [];
+  const resolvedTarget = canonicalizePotentialPath(path.resolve(cwd, target));
+  const owners = [];
+  for (const { value } of listWorkspaceRecords(config)) {
+    const buildPath = path.resolve(value.path);
+    if (resolvedTarget !== buildPath && !isPathInside(buildPath, resolvedTarget)) continue;
+    if (buildPath !== path.join(path.resolve(value.buildRoot), value.workspaceId)
+      || path.dirname(buildPath) !== path.resolve(value.buildRoot)
+      || canonicalizePotentialPath(buildPath) !== buildPath) continue;
+    const markerPath = path.join(buildPath, OWNERSHIP_MARKER);
+    if (!fs.existsSync(markerPath)) continue;
+    const stat = fs.lstatSync(markerPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) continue;
+    const marker = readJson(markerPath, null);
+    if (marker?.owner === "clean-development" && marker.ownershipId === value.ownershipId
+      && marker.workspaceId === value.workspaceId && marker.workspace === value.workspace) {
+      owners.push(value);
+    }
+  }
+  owners.sort((left, right) => path.resolve(right.path).length - path.resolve(left.path).length);
+  if (owners[0] && resolvedTarget === path.resolve(owners[0].path)) {
+    throw new Error(`Refusing Cargo target at the owned build directory itself: ${owners[0].path}. Use a subdirectory so cargo clean preserves the ownership marker.`);
+  }
+  return owners;
+}
+
+function cargoTargetSelection(args, preview) {
+  for (let index = 0; index < args.length && args[index] !== "--"; index += 1) {
+    if (args[index] === "--target-dir") return { directory: args[index + 1], explicit: true };
+    if (args[index].startsWith("--target-dir=")) return { directory: args[index].slice("--target-dir=".length), explicit: true };
+  }
+  return { directory: environmentValue(preview.env, "CARGO_TARGET_DIR"), explicit: !Object.hasOwn(preview.applied, "CARGO_TARGET_DIR") };
+}
+
+function rejectUnownedManagedTarget(config, target, cwd, owners) {
+  if (!target) return;
+  const resolvedTarget = canonicalizePotentialPath(path.resolve(cwd, target));
+  const roots = [config.buildRoot, ...listWorkspaceRecords(config).map(({ value }) => value.buildRoot).filter(path.isAbsolute)];
+  for (const root of new Set(roots)) {
+    const resolvedRoot = canonicalizePotentialPath(root);
+    if ((resolvedTarget === resolvedRoot || isPathInside(resolvedRoot, resolvedTarget))
+      && !owners.some((owner) => canonicalizePotentialPath(owner.buildRoot) === resolvedRoot)) {
+      throw new Error(`Refusing unowned explicit Cargo target inside managed build root: ${resolvedTarget}. Use normal managed routing first, or choose a target outside managed build roots.`);
+    }
+  }
+}
+
 export async function runTool(tool, args, { config, cwd = process.cwd(), env = process.env } = {}) {
+  if (!SHIM_TOOLS.includes(tool)) throw new Error(`Unsupported shim tool: ${tool}`);
+  const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
+  if (sessionMode === "skip") {
+    const childEnv = environmentWithoutSessionRouting(env, config.locations.binDir);
+    const executable = resolveExecutable(tool, childEnv, config.locations.binDir);
+    if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${config.locations.binDir}`);
+    return spawnInherited(executable, args, { cwd, env: childEnv });
+  }
   const workspace = identifyWorkspace(tool, args, cwd);
   const effectiveConfig = workspace.effectiveCwd === path.resolve(cwd)
     ? config
     : resolveConfig({ cwd: workspace.effectiveCwd, env });
+  if (effectiveConfig.enabled === false || effectiveConfig.tools?.[tool] === false) {
+    const childEnv = environmentWithoutSessionRouting(env, effectiveConfig.locations.binDir);
+    const executable = resolveExecutable(tool, childEnv, effectiveConfig.locations.binDir);
+    if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
+    return spawnInherited(executable, args, { cwd, env: childEnv });
+  }
   const executable = resolveExecutable(tool, env, effectiveConfig.locations.binDir);
   if (!executable) throw new Error(`Cannot find the real '${tool}' executable outside ${effectiveConfig.locations.binDir}`);
-  const releaseWorkspaceLock = tool === "cargo"
-    ? await acquireWorkspaceLock(effectiveConfig, workspace.id, effectiveConfig.buildRoot)
-    : () => {};
-  let lease = null;
+  const preview = tool === "cargo" ? environmentForTool(tool, args, { config: effectiveConfig, cwd, env, create: false }) : null;
+  const targetSelection = preview ? cargoTargetSelection(args, preview) : null;
+  const targetDirectory = targetSelection?.directory;
+  let targetOwners = [];
+  const releaseLocks = [];
+  const leases = [];
   let execution = null;
   let routed;
   try {
+    for (let attempt = 0; tool === "cargo" && attempt < 5; attempt += 1) {
+      targetOwners = managedCargoTargetOwners(effectiveConfig, targetDirectory, cwd);
+      const lockTargets = [{ workspaceId: workspace.id, buildRoot: effectiveConfig.buildRoot }];
+      for (const owner of targetOwners) {
+        if (!lockTargets.some((target) => target.workspaceId === owner.workspaceId && target.buildRoot === owner.buildRoot)) lockTargets.push(owner);
+      }
+      lockTargets.sort((left, right) => {
+        const a = `${left.buildRoot}/${left.workspaceId}`;
+        const b = `${right.buildRoot}/${right.workspaceId}`;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+      for (const target of lockTargets) releaseLocks.push(await acquireWorkspaceLock(effectiveConfig, target.workspaceId, target.buildRoot));
+      const currentOwners = managedCargoTargetOwners(effectiveConfig, targetDirectory, cwd);
+      const stable = currentOwners.length === targetOwners.length && currentOwners.every((owner, index) =>
+        ["workspaceId", "workspace", "buildRoot", "path", "ownershipId"].every((key) => owner[key] === targetOwners[index][key]));
+      if (stable) {
+        targetOwners = currentOwners;
+        if (targetSelection.explicit) rejectUnownedManagedTarget(effectiveConfig, targetDirectory, cwd, targetOwners);
+        break;
+      }
+      while (releaseLocks.length > 0) releaseLocks.pop()();
+      if (attempt === 4) throw new Error("Managed Cargo target ownership kept changing before execution; retry the command");
+    }
     const existingBuildRecord = tool === "cargo"
       ? workspaceRecord(effectiveConfig, workspace.id, effectiveConfig.buildRoot).value
       : null;
@@ -584,31 +741,67 @@ export async function runTool(tool, args, { config, cwd = process.cwd(), env = p
     if (routed.ownedBuild) {
       recordWorkspace(effectiveConfig, routed.workspace, routed.ownedBuild);
     }
+    for (const targetOwner of targetOwners) {
+      if (targetOwner.path === routed.ownedBuild?.path) continue;
+      recordWorkspace(
+        { ...effectiveConfig, buildRoot: targetOwner.buildRoot },
+        { id: targetOwner.workspaceId, root: targetOwner.workspace },
+        { path: targetOwner.path, ownershipId: targetOwner.ownershipId }
+      );
+    }
     if (tool === "cargo") {
-      lease = createLease(effectiveConfig, routed.workspace, tool);
+      leases.push(createLease(effectiveConfig, routed.workspace, tool));
+      const leasedIds = new Set([routed.workspace.id]);
+      for (const targetOwner of targetOwners) {
+        if (leasedIds.has(targetOwner.workspaceId)) continue;
+        leases.push(createLease(effectiveConfig, { id: targetOwner.workspaceId, root: targetOwner.workspace }, tool));
+        leasedIds.add(targetOwner.workspaceId);
+      }
       execution = spawnInherited(executable, args, {
         cwd,
         env: routed.env,
-        onSpawn: (child) => lease.updatePid(child.pid)
+        onSpawn: (child) => { for (const lease of leases) lease.updatePid(child.pid); }
       });
     }
+  } catch (error) {
+    for (const lease of leases) lease.release();
+    throw error;
   } finally {
-    releaseWorkspaceLock();
+    for (const release of releaseLocks.reverse()) release();
   }
   execution ||= spawnInherited(executable, args, { cwd, env: routed.env });
   try {
     return await execution;
   } finally {
-    lease?.release();
+    for (const lease of leases) lease.release();
   }
 }
 
 export async function runWithShims(command, args, { config, cwd = process.cwd(), env = process.env } = {}) {
+  const sessionMode = normalizeSessionMode(environmentValue(env, SESSION_MODE_ENV));
+  if (sessionMode === "skip") {
+    const childEnv = environmentWithoutSessionRouting(env, config.locations.binDir);
+    const executable = resolveExecutable(command, childEnv, config.locations.binDir);
+    if (!executable) throw new Error(`Cannot find executable: ${command}`);
+    return spawnInherited(executable, args, { cwd, env: childEnv });
+  }
   const runtime = ensureRuntime(config);
   const childEnv = { ...env, CLEAN_DEVELOPMENT_ACTIVE: "1" };
   setEnvironmentValue(childEnv, "PATH", prependUniquePath(environmentValue(childEnv, "PATH"), runtime.binDir));
   if (SHIM_TOOLS.includes(command)) return runTool(command, args, { config, cwd, env: childEnv });
   const executable = resolveExecutable(command, childEnv, runtime.binDir);
   if (!executable) throw new Error(`Cannot find executable: ${command}`);
-  return spawnInherited(executable, args, { cwd, env: childEnv });
+  let forwarded = args;
+  if (command === SUPPORTED_AGENTS.codex) {
+    const separator = args.indexOf("--");
+    const insertion = separator === -1 ? args.length : separator;
+    const routedMode = sessionMode || "session-only";
+    forwarded = [
+      ...args.slice(0, insertion),
+      "-c", "allow_login_shell=false",
+      "-c", `shell_environment_policy.set.${SESSION_MODE_ENV}=${JSON.stringify(routedMode)}`,
+      ...args.slice(insertion)
+    ];
+  }
+  return spawnInherited(executable, forwarded, { cwd, env: childEnv });
 }

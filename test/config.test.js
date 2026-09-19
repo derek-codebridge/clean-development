@@ -66,7 +66,7 @@ test("every declared adapter resolves to an explicit managed destination", (t) =
     npm: { npm_config_cache: path.join(config.cacheRoot, "node", "npm") },
     npx: { npm_config_cache: path.join(config.cacheRoot, "node", "npm") },
     pnpm: { npm_config_cache: path.join(config.cacheRoot, "node", "npm"), npm_config_store_dir: path.join(config.cacheRoot, "node", "pnpm-store") },
-    yarn: { YARN_CACHE_FOLDER: path.join(config.cacheRoot, "node", "yarn") },
+    yarn: { YARN_CACHE_FOLDER: path.join(config.cacheRoot, "node", "yarn"), YARN_ENABLE_GLOBAL_CACHE: "false", YARN_ENABLE_MIRROR: "false" },
     bun: { BUN_INSTALL_CACHE_DIR: path.join(config.cacheRoot, "node", "bun") },
     uv: { UV_CACHE_DIR: path.join(config.cacheRoot, "python", "uv") },
     pip: { PIP_CACHE_DIR: path.join(config.cacheRoot, "python", "pip") },

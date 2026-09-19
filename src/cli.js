@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import { allToolEnvironments, environmentForTool } from "./adapters.js";
 import { resolveConfig, writeProjectConfig, writeUserConfig } from "./config.js";
 import { CONFIG_FILE, DEFAULT_CONFIG, SHIM_TOOLS, SUPPORTED_AGENTS, VERSION } from "./constants.js";
-import { installAgentIntegrations, integrationStatus, applyClaudeSessionEnvironment, removeOwnedAgentIntegrations } from "./integrations.js";
+import { installAgentIntegrations, integrationStatus, applyClaudeSessionEnvironment, removeOwnedAgentIntegrations, validateClaudeHookOwner } from "./integrations.js";
 import { acquireDirectoryLock, directorySize, readJson, writeJsonAtomic } from "./io.js";
-import { environmentValue, prependUniquePath } from "./platform.js";
+import { environmentValue, platformPaths, prependUniquePath } from "./platform.js";
 import { ensureRuntime, removeRuntime, resolveExecutable, runTool, runWithShims, runtimeRemovalPlan } from "./runtime.js";
+import { applySessionPlan, deferSessionRouting, normalizeSessionMode, planSession, selectSessionMode } from "./session.js";
 import { acquireWorkspaceLock, activeWorkspaceIds, applyPrune, listWorkspaceRecords, prunePlan } from "./state.js";
 
 const HELP = `clean-development ${VERSION}
@@ -17,9 +19,10 @@ Usage:
   clean-development setup [--root PATH] [--agents LIST] [--dry-run] [--json]
   clean-development update [--root PATH] [--agents LIST] [--dry-run] [--json]
   clean-development prepare [--dry-run] [--json]
+  clean-development session [--session session-only|persist|skip] [--dry-run] [--json]
   clean-development init [--root PATH] [--force]
-  clean-development agent AGENT [-- ARGS...]
-  clean-development run -- COMMAND [ARGS...]
+  clean-development agent AGENT [--session session-only|persist|skip] [-- ARGS...]
+  clean-development run [--session session-only|persist|skip] -- COMMAND [ARGS...]
   clean-development env [--tool TOOL] [--format json|sh|fish|powershell]
   clean-development status [--sizes] [--json]
   clean-development doctor [--json]
@@ -39,9 +42,10 @@ const COMMAND_OPTIONS = Object.freeze({
   setup: { root: "value", agents: "value", "dry-run": "boolean", json: "boolean" },
   update: { root: "value", agents: "value", "dry-run": "boolean", json: "boolean" },
   prepare: { "dry-run": "boolean", json: "boolean" },
+  session: { session: "value", "dry-run": "boolean", json: "boolean" },
   init: { root: "value", force: "boolean", json: "boolean" },
-  agent: {},
-  run: {},
+  agent: { session: "value" },
+  run: { session: "value" },
   shim: {},
   hook: { owner: "value" },
   env: { tool: "value", format: "value" },
@@ -88,7 +92,7 @@ function parse(argv, optionTypes) {
 
 function validateArguments(command, parsed) {
   const { positionals, passthrough } = parsed;
-  const noArguments = ["help", "version", "setup", "update", "prepare", "init", "env", "status", "doctor", "prune", "uninstall"];
+  const noArguments = ["help", "version", "setup", "update", "prepare", "session", "init", "env", "status", "doctor", "prune", "uninstall"];
   if (noArguments.includes(command) && (positionals.length > 0 || passthrough.length > 0)) {
     throw new Error(`${command} does not accept positional arguments`);
   }
@@ -203,6 +207,76 @@ function projectInit(options, cwd) {
   if (options.root) value.root = path.resolve(options.root);
   writeProjectConfig(file, value, { force: Boolean(options.force) });
   return { file, config: readJson(file) };
+}
+
+function renderSessionPlan(plan, stream = process.stderr) {
+  const tools = plan.detected.tools.length ? plan.detected.tools.join(", ") : "no supported manifests";
+  stream.write(`\nClean Development session plan\n`);
+  stream.write(`Project: ${plan.projectRoot}\n`);
+  stream.write(`Detected: ${tools}\n`);
+  stream.write(`Caches: ${plan.managed.cacheRoot}\n`);
+  stream.write(`Builds: ${plan.managed.buildRoot}\n`);
+  if (plan.managed.repositoryPaths.length) {
+    stream.write(`Blocked repository storage: ${plan.managed.repositoryPaths.join(", ")}\n`);
+  }
+  if (plan.detected.conflicts.length) {
+    for (const conflict of plan.detected.conflicts) stream.write(`Conflict: ${conflict.reason} (${conflict.tools.join(", ")})\n`);
+  }
+  if (plan.projectConfig.status === "proposed") {
+    stream.write(`Persist would create ${plan.projectConfig.path}:\n${plan.projectConfig.proposedContents}`);
+  } else if (plan.projectConfig.status === "existing") {
+    stream.write(`Project settings already exist: ${plan.projectConfig.path}\n`);
+  } else {
+    stream.write(`Persist unavailable: ${plan.projectConfig.reason}\n`);
+  }
+}
+
+async function promptSessionChoice(plan, input = process.stdin, stream = process.stderr) {
+  renderSessionPlan(plan, stream);
+  const prompt = createInterface({ input, output: stream, terminal: true });
+  try {
+    while (true) {
+      let answer;
+      try {
+        answer = (await prompt.question("Choose [1] session only, [2] save project settings, or [3] skip: ")).trim().toLowerCase();
+      } catch {
+        return "skip";
+      }
+      if (["", "1", "session", "session-only"].includes(answer)) {
+        if (plan.choices.find((item) => item.mode === "session-only")?.available) return "session-only";
+        stream.write("Session-only is unavailable until managed storage is moved outside the project.\n");
+        continue;
+      }
+      if (["2", "persist", "save"].includes(answer)) {
+        if (plan.choices.find((item) => item.mode === "persist")?.available) return "persist";
+        stream.write(`Save is unavailable${plan.projectConfig.reason ? `: ${plan.projectConfig.reason}` : " until managed storage is moved outside the project"}.\n`);
+        continue;
+      }
+      if (["3", "skip", "no"].includes(answer)) return "skip";
+      stream.write("Enter 1, 2, or 3.\n");
+    }
+  } finally {
+    prompt.close();
+  }
+}
+
+async function sessionDecision(options, config, env, cwd = process.cwd()) {
+  normalizeSessionMode(options.session);
+  const plan = planSession({ cwd, env, config });
+  if (options["dry-run"]) return { dryRun: true, plan };
+  const inherited = environmentValue(env, "CLEAN_DEVELOPMENT_SESSION_MODE");
+  const interactive = config.enabled !== false && !options.session && !inherited && Boolean(process.stdin.isTTY && process.stderr.isTTY);
+  const choice = interactive ? await promptSessionChoice(plan) : null;
+  const mode = config.enabled === false ? "skip" : selectSessionMode({ requested: options.session, env, interactive, choice });
+  const applied = applySessionPlan(plan, mode, env);
+  const result = {
+    dryRun: false,
+    mode,
+    plan,
+    projectConfig: applied.projectConfig
+  };
+  Object.defineProperty(result, "env", { value: applied.env, enumerable: false });
+  return result;
 }
 
 function quoteShell(value) {
@@ -371,21 +445,60 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     output(prepare(parsed.options, env), json);
     return 0;
   }
+  if (command === "session") {
+    const config = resolveConfig({ env });
+    const result = await sessionDecision(parsed.options, config, env);
+    output(result, json);
+    return 0;
+  }
   if (command === "init") {
     output(projectInit(parsed.options, process.cwd()), json);
     return 0;
   }
-  const config = resolveConfig({ env });
+  const requestedSession = normalizeSessionMode(parsed.options.session);
+  const inheritedSession = normalizeSessionMode(environmentValue(env, "CLEAN_DEVELOPMENT_SESSION_MODE"));
+  if ((requestedSession || inheritedSession) === "skip" && ["run", "agent", "shim", "hook"].includes(command)) {
+    const skipEnv = { ...env, CLEAN_DEVELOPMENT_SESSION_MODE: "skip" };
+    const skipConfig = { locations: platformPaths(env) };
+    if (command === "run") {
+      const [executable, ...args] = parsed.passthrough.length ? parsed.passthrough : parsed.positionals;
+      return runWithShims(executable, args, { config: skipConfig, env: skipEnv });
+    }
+    if (command === "agent") {
+      const agent = parsed.positionals[0];
+      if (!Object.hasOwn(SUPPORTED_AGENTS, agent)) throw new Error(`agent must be one of: ${Object.keys(SUPPORTED_AGENTS).join(", ")}`);
+      const args = parsed.passthrough.length ? parsed.passthrough : parsed.positionals.slice(1);
+      return runWithShims(SUPPORTED_AGENTS[agent], args, { config: skipConfig, env: skipEnv });
+    }
+    if (command === "shim") {
+      const [tool, ...args] = parsed.positionals.concat(parsed.passthrough);
+      return runTool(tool, args, { config: skipConfig, env: skipEnv });
+    }
+    return 0;
+  }
+  let config;
+  if (command === "hook" && inheritedSession === null) {
+    try {
+      config = resolveConfig({ env });
+    } catch {
+      config = resolveConfig({ env, includeProject: false });
+    }
+  } else config = resolveConfig({ env });
   if (command === "run") {
     const [executable, ...args] = parsed.passthrough.length ? parsed.passthrough : parsed.positionals;
     if (!executable) throw new Error("run requires a command after --");
-    return runWithShims(executable, args, { config, env });
+    const session = await sessionDecision(parsed.options, config, env);
+    return runWithShims(executable, args, { config, env: session.env });
   }
   if (command === "agent") {
     const agent = parsed.positionals[0];
     if (!Object.hasOwn(SUPPORTED_AGENTS, agent)) throw new Error(`agent must be one of: ${Object.keys(SUPPORTED_AGENTS).join(", ")}`);
     const args = parsed.passthrough.length ? parsed.passthrough : parsed.positionals.slice(1);
-    return runWithShims(SUPPORTED_AGENTS[agent], args, { config, env });
+    const session = await sessionDecision(parsed.options, config, env);
+    const agentEnv = agent === "opencode"
+      ? deferSessionRouting(session.env, config.locations.binDir)
+      : session.env;
+    return runWithShims(SUPPORTED_AGENTS[agent], args, { config, env: agentEnv });
   }
   if (command === "shim") {
     const [tool, ...args] = parsed.positionals.concat(parsed.passthrough);
@@ -394,9 +507,11 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   }
   if (command === "hook") {
     if (parsed.positionals[0] !== "session-start") throw new Error("unknown hook");
+    const owner = validateClaudeHookOwner(config, env, parsed.options.owner);
+    if (!owner) return 0;
     const runtime = ensureRuntime(config, { automatic: true });
     if (!runtime) return 0;
-    applyClaudeSessionEnvironment(config, runtime, env);
+    applyClaudeSessionEnvironment(config, runtime, env, parsed.options.owner, { disabled: config.enabled === false });
     return 0;
   }
   if (command === "env") {

@@ -1,9 +1,11 @@
 # Roadmap
 
-## Before the first public release
+## v0.2 follow-up
 
-- Run the npm tarball through isolated global and `npx` installation tests on macOS and Linux.
-- Verify Claude Code, Codex CLI/App, Grok Build, OpenCode, Gemini CLI, and Pi using real processes.
+- Keep the v0.2.0 session acceptance matrix current: read-only plan, terminal choices, noninteractive session-only default, exact reviewed project-file persistence, skip without routing, and static cache/dynamic Cargo behavior.
+- Repeat isolated test-account Codex and Grok acceptance when their host versions change. Final v0.2.0 source/package evidence is recorded in [verification](docs/verification.md).
+- Run public-registry global and `npx` installation checks after the first npm publication.
+- Complete real-process verification for Claude Code, Codex App, OpenCode, Gemini CLI, and Pi. Earlier Codex CLI and short Antigravity workflows passed. Grok 1.0.34 passed model-shell routing after the owned command prefix repaired login-PATH replacement; its broader session/resume coverage remains open.
 - Capture model-facing requests where the host permits it and confirm that normal runtime activation adds no prompt content or tool calls.
 - Benchmark shim overhead, cold/warm cache reuse, concurrent worktrees, and external-volume failure behavior.
 - Enable GitHub private vulnerability reporting and npm trusted publishing.

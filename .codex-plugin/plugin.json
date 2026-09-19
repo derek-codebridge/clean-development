@@ -1,6 +1,6 @@
 {
   "name": "clean-development",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Explicit management skill for configuring and inspecting clean-development.",
   "author": {
     "name": "Magrathean UK",
@@ -13,7 +13,10 @@
     "longDescription": "Configure, inspect, and safely prune development storage managed by clean-development.",
     "developerName": "Magrathean UK",
     "category": "Productivity",
-    "capabilities": ["Read", "Write"],
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
     "websiteURL": "https://github.com/magrathean-uk/clean-development",
     "defaultPrompt": "Use Clean Development only when explicitly requested."
   }

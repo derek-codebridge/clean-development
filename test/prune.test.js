@@ -7,18 +7,18 @@ import { resolveConfig } from "../src/config.js";
 import { OWNERSHIP_MARKER } from "../src/adapters.js";
 import { writeJsonAtomic } from "../src/io.js";
 import { applyPrune, prunePlan, workspaceRecord } from "../src/state.js";
+import { isolatedEnvironment } from "../scripts/harness-utils.mjs";
+
+function fixture(t, prefix) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const config = resolveConfig({ cwd: root, env: isolatedEnvironment(root), includeProject: false });
+  assert.equal(config.buildRoot, path.join(fs.realpathSync(root), "managed", "builds"));
+  return { root, config };
+}
 
 test("prune removes only an old registered direct child of its recorded build root", async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-prune-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const env = {
-    ...process.env,
-    CLEAN_DEVELOPMENT_HOME: path.join(root, "home"),
-    CLEAN_DEVELOPMENT_DATA_HOME: path.join(root, "data"),
-    CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(root, "config"),
-    CLEAN_DEVELOPMENT_ROOT: path.join(root, "managed")
-  };
-  const config = resolveConfig({ env });
+  const { root, config } = fixture(t, "clean-development-prune-");
   const workspacePath = path.join(config.buildRoot, "fixture-deadbeef00");
   fs.mkdirSync(workspacePath, { recursive: true });
   fs.writeFileSync(path.join(workspacePath, "artifact"), "disposable");
@@ -55,16 +55,7 @@ test("prune removes only an old registered direct child of its recorded build ro
 });
 
 test("unsafe registry paths are never eligible", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-prune-unsafe-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const env = {
-    ...process.env,
-    CLEAN_DEVELOPMENT_HOME: path.join(root, "home"),
-    CLEAN_DEVELOPMENT_DATA_HOME: path.join(root, "data"),
-    CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(root, "config"),
-    CLEAN_DEVELOPMENT_ROOT: path.join(root, "managed")
-  };
-  const config = resolveConfig({ env });
+  const { root, config } = fixture(t, "clean-development-prune-unsafe-");
   const recordFile = workspaceRecord(config, "unsafe", config.buildRoot).file;
   writeJsonAtomic(recordFile, {
     schemaVersion: 1,
@@ -82,16 +73,7 @@ test("unsafe registry paths are never eligible", (t) => {
 });
 
 test("a registered directory without the matching ownership marker is never eligible", async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "clean-development-prune-unowned-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const env = {
-    ...process.env,
-    CLEAN_DEVELOPMENT_HOME: path.join(root, "home"),
-    CLEAN_DEVELOPMENT_DATA_HOME: path.join(root, "data"),
-    CLEAN_DEVELOPMENT_CONFIG_HOME: path.join(root, "config"),
-    CLEAN_DEVELOPMENT_ROOT: path.join(root, "managed")
-  };
-  const config = resolveConfig({ env });
+  const { root, config } = fixture(t, "clean-development-prune-unowned-");
   const workspacePath = path.join(config.buildRoot, "fixture-deadbeef00");
   fs.mkdirSync(workspacePath, { recursive: true });
   const recordFile = workspaceRecord(config, "fixture-deadbeef00", config.buildRoot).file;
