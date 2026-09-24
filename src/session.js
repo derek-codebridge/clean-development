@@ -51,6 +51,10 @@ function inspectProjectConfig(file) {
 
 function repositoryManagedPaths(projectRoot, managed) {
   const root = canonicalizePotentialPath(projectRoot);
+  const home = managed.locations?.home
+    ? canonicalizePotentialPath(managed.locations.home)
+    : null;
+  if (root === home) return [];
   return [...new Set([managed.root, managed.cacheRoot, managed.buildRoot, managed.scratchRoot]
     .map((value) => canonicalizePotentialPath(value))
     .filter((value) => value === root || isPathInside(root, value)))];
