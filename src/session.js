@@ -106,7 +106,7 @@ function mergePreview(detection, config, env) {
 
 export function planSession({ cwd = process.cwd(), env = process.env, config } = {}) {
   if (!config) throw new Error("planSession requires resolved configuration");
-  const detection = detectStack(cwd);
+  const detection = detectStack(canonicalizePotentialPath(cwd), { home: config.locations.home });
   const projectConfig = inspectProjectConfig(path.join(detection.root, CONFIG_FILE));
   const proposed = proposedProjectConfig(detection, config);
   const routing = mergePreview(detection, config, env);

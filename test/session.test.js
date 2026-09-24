@@ -93,6 +93,13 @@ test("home detection preserves workspace and session-only storage boundaries", (
     CLEAN_DEVELOPMENT_HOME: home,
     CLEAN_DEVELOPMENT_ROOT: managed
   };
+  const workspaceConfig = resolveConfig({ cwd: workspace, env });
+  const workspacePlan = planSession({ cwd: workspace, env, config: workspaceConfig });
+  assert.equal(workspacePlan.projectRoot, detected.root);
+  assert.deepEqual(workspacePlan.detected.tools, []);
+  assert.equal(workspacePlan.projectConfig.path, path.join(detected.root, ".clean-development.json"));
+  assert.deepEqual(workspacePlan.managed.environment, {});
+
   const config = resolveConfig({ cwd: home, env });
   const plan = planSession({ cwd: home, env, config });
 
